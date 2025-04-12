@@ -42,10 +42,12 @@ from mad_icp.apps.utils.ros_reader import Ros1Reader
 from mad_icp.apps.utils.ros2_reader import Ros2Reader
 from mad_icp.apps.utils.mcap_reader import McapReader
 from mad_icp.apps.utils.kitti_reader import KittiReader
-from mad_icp.apps.utils.visualizer import Visualizer
+from mad_icp.apps.utils.visualizer_official import Visualizer
 from mad_icp.configurations.datasets.dataset_configurations import DatasetConfiguration_lut
 from mad_icp.configurations.mad_params import MADConfiguration_lut
 # binded vectors and odometry
+import open3d as o3d
+
 from mad_icp.src.pybind.pypeline import Pipeline, VectorEigen3d
 
 
@@ -96,8 +98,9 @@ def main(data_path: Annotated[
     if not noviz:
         visualizer = Visualizer()
 
+    # console.print("[yellow] TESTESTSETSET")
+
     reader_type = InputDataInterface.kitti
-    
     if len(list(data_path.glob("*.bag"))) != 0:
         console.print("[yellow] The dataset is in ros bag format")
         reader_type = InputDataInterface.ros1
@@ -167,45 +170,62 @@ def main(data_path: Annotated[
     estimate_file = open(estimate_file_name, 'a')
     estimate_file.truncate(0)
 
-    with InputDataInterface_lut[reader_type](data_path, min_range, max_range, topic=topic, sensor_hz=sensor_hz, apply_correction=apply_correction) as reader:
+    all_points_world = []
+
+    with InputDataInterface_lut[reader_type](data_path, min_range, max_range, topic=topic, sensor_hz=sensor_hz,
+                                             apply_correction=apply_correction) as reader:
         t_start = datetime.now()
         for ts, points in track(reader, description="processing..."):
-
             print("Loading frame #", pipeline.currentID())
 
             points = VectorEigen3d(points)
-            t_end = datetime.now()
-            t_delta = t_end - t_start
-            print("Time for reading points [ms]: ",
-                  t_delta.total_seconds() * 1000)
+            t_read_end = datetime.now()
+            print("Time for reading points [ms]:", (t_read_end - t_start).total_seconds() * 1000)
 
             t_start = datetime.now()
             pipeline.compute(ts, points)
-            t_end = datetime.now()
-            t_delta = t_end - t_start
-            print(
-                "Time for odometry estimation [ms]: ", t_delta.total_seconds() * 1000)
+            t_comp_end = datetime.now()
+            print("Time for odometry estimation [ms]:", (t_comp_end - t_start).total_seconds() * 1000)
 
             lidar_to_world = pipeline.currentPose()
-            write_transformed_pose(
-                estimate_file, lidar_to_world, lidar_to_base)
+            write_transformed_pose(estimate_file, lidar_to_world, lidar_to_base)
+
+            # Accumulate all transformed points
+            # if pipeline.isMapUpdated():
+            leaves = pipeline.currentLeaves()
+            leaves_np = np.array([p.flatten() for p in leaves])  # (N, 3)
+
+            if leaves_np.shape[0] == 0:
+                continue
+
+            # Transform to world frame
+            ones = np.ones((leaves_np.shape[0], 1))
+            points_hom = np.hstack([leaves_np, ones])  # (N, 4)
+            transformed = (lidar_to_world @ points_hom.T).T[:, :3]  # (N, 3)
+            all_points_world.append(transformed)
 
             if not noviz:
-                t_start = datetime.now()
+                t_viz_start = datetime.now()
                 if pipeline.isMapUpdated():
-                    visualizer.update(pipeline.currentLeaves(), pipeline.modelLeaves(
-                    ), lidar_to_world, pipeline.keyframePose())
+                    visualizer.update(pipeline.currentLeaves(), pipeline.modelLeaves(),
+                                      lidar_to_world, pipeline.keyframePose())
                 else:
-                    visualizer.update(pipeline.currentLeaves(),
-                                      None, lidar_to_world, None)
-                t_end = datetime.now()
-                t_delta = t_end - t_start
-                print("Time for visualization [ms]:",
-                      t_delta.total_seconds() * 1000, "\n")
+                    visualizer.update(pipeline.currentLeaves(), None, lidar_to_world, None)
+                print("Time for visualization [ms]:", (datetime.now() - t_viz_start).total_seconds() * 1000)
 
             t_start = datetime.now()
 
     estimate_file.close()
+
+    # Concatenate and save all points
+    all_points_np = np.vstack(all_points_world)
+
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(all_points_np)
+
+    output_path = estimate_path / "slam_final_map.pcd"
+    o3d.io.write_point_cloud(str(output_path), pcd)
+    console.print(f"[bold green]✅ Full SLAM map saved to: {output_path}")
 
 
 def run():

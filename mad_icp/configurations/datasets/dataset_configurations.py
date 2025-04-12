@@ -125,6 +125,20 @@ vbr_os1_conf = {
     ]
 }
 
+custom = {
+    "min_range": 0.7,
+    "max_range": 150,
+    "sensor_hz": 18,
+    "deskew": False,
+    "rosbag_topic": "/cepton_pcl2",
+    "lidar_to_base": [
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 0, 1]
+    ]
+}
+
 class DatasetConfiguration(str, Enum):
     hilti_2021 = "hilti_2021",
     kitti = "kitti",
@@ -133,6 +147,7 @@ class DatasetConfiguration(str, Enum):
     newer_college_os1 = "newer_college_os1",
     vbr_os0 = "vbr_os0",
     vbr_os1 = "vbr_os1"
+    custom = "custom"
     # Can insert additional dataset configurations
 
 
@@ -143,5 +158,6 @@ DatasetConfiguration_lut = {
     DatasetConfiguration.newer_college_os0: newer_college_os0_conf,
     DatasetConfiguration.newer_college_os1: newer_college_os1_conf,
     DatasetConfiguration.vbr_os0: vbr_os0_conf,
-    DatasetConfiguration.vbr_os1: vbr_os1_conf
+    DatasetConfiguration.vbr_os1: vbr_os1_conf,
+    DatasetConfiguration.custom: custom
 }
