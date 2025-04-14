@@ -117,10 +117,10 @@ class Visualizer():
 			# self.vis.update_geometry(self.local_map)
 
 			# Periodic save
-			print('DEBUG: ', self.vis_counter)
+			# print('DEBUG: ', self.vis_counter)
 			# if self.vis_counter % 10 == 0:
 			# 	o3d.io.write_point_cloud(f"pcd_final/local_map_{self.vis_counter}.pcd", self.local_map)
-			o3d.io.write_point_cloud(f"pcd_final/local_map_{self.vis_counter}.pcd", self.local_map)
+			o3d.io.write_point_cloud(f"pcd_final_2/local_map_{self.vis_counter}.pcd", self.local_map)
 			# if vis_counter % 10 == 0:
 			# 	print("Saving global map...")
 			# 	o3d.io.write_point_cloud("global_map_accumulated.pcd", self.global_map)

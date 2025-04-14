@@ -42,7 +42,7 @@ from mad_icp.apps.utils.ros_reader import Ros1Reader
 from mad_icp.apps.utils.ros2_reader import Ros2Reader
 from mad_icp.apps.utils.mcap_reader import McapReader
 from mad_icp.apps.utils.kitti_reader import KittiReader
-from mad_icp.apps.utils.visualizer_official import Visualizer
+from mad_icp.apps.utils.visualizer_orig import Visualizer
 from mad_icp.configurations.datasets.dataset_configurations import DatasetConfiguration_lut
 from mad_icp.configurations.mad_params import MADConfiguration_lut
 # binded vectors and odometry
@@ -178,7 +178,10 @@ def main(data_path: Annotated[
         for ts, points in track(reader, description="processing..."):
             print("Loading frame #", pipeline.currentID())
 
-            points = VectorEigen3d(points)
+            points_xyz = points[:, :3]
+            enriched = points
+
+            points = VectorEigen3d(points_xyz)
             t_read_end = datetime.now()
             print("Time for reading points [ms]:", (t_read_end - t_start).total_seconds() * 1000)
 
@@ -201,7 +204,17 @@ def main(data_path: Annotated[
             # Transform to world frame
             ones = np.ones((leaves_np.shape[0], 1))
             points_hom = np.hstack([leaves_np, ones])  # (N, 4)
-            transformed = (lidar_to_world @ points_hom.T).T[:, :3]  # (N, 3)
+            transformed_xyz = (lidar_to_world @ points_hom.T).T[:, :3]  # (N, 3)
+
+            # Reinject GPS: enriched[:, 3:] is (N, 3) → [lat, lon, alt]
+            # Match current leaves with original frame
+            # ❗ Ensure same order; this assumes 1:1 point mapping
+            if enriched.shape[0] == leaves_np.shape[0]:
+                transformed = np.hstack([transformed_xyz, enriched[:, 3:]])  # (N, 6)
+            else:
+                print(f"[warn] Leaf count {leaves_np.shape[0]} ≠ original point count {enriched.shape[0]}, skipping GPS reinjection.")
+                transformed = transformed_xyz  # fallback
+
             all_points_world.append(transformed)
 
             if not noviz:
@@ -221,11 +234,17 @@ def main(data_path: Annotated[
     all_points_np = np.vstack(all_points_world)
 
     pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(all_points_np)
+    pcd.points = o3d.utility.Vector3dVector(all_points_np[:, :3])
 
-    output_path = estimate_path / "slam_final_map.pcd"
+    # Optional: colorize based on GPS (normalized)
+    if all_points_np.shape[1] == 6:
+        gps_color = all_points_np[:, 3:6]
+        gps_color -= gps_color.min(0)
+        gps_color /= gps_color.max(0) + 1e-6
+        pcd.colors = o3d.utility.Vector3dVector(gps_color)
+
+    output_path = estimate_path / "slam_final_map_with_gps.pcd"
     o3d.io.write_point_cloud(str(output_path), pcd)
-    console.print(f"[bold green]✅ Full SLAM map saved to: {output_path}")
 
 
 def run():
